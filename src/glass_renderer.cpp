@@ -176,7 +176,8 @@ void GlassRenderer::render(int width,
                            float clickAgeSec,
                            bool clickActive,
                            const GlassMaterial& material,
-                           const std::vector<GlassPanelSpec>& panels) {
+                           const std::vector<GlassPanelSpec>& panels,
+                           bool translucentGlass) {
     if (width <= 0 || height <= 0) return;
 
     // GtkGLArea binds its own target FBO; preserve it so we render into GTK's framebuffer at the end.
@@ -197,12 +198,16 @@ void GlassRenderer::render(int width,
         progBlit_.setInt("uTex", 0);
         progBlit_.setInt("uFlipY", 1);
         drawQuad();
-    } else {
+    } else if (!overlayTransparentMode) {
         progProcedural_.use();
         progProcedural_.setFloat("uTime", timeSec);
         progProcedural_.setVec2("uResolution", static_cast<float>(width), static_cast<float>(height));
         progProcedural_.setInt("uBgStyle", proceduralBgStyle);
         drawQuad();
+    } else {
+        // Desktop Environment translucent mode without static capture: subtle cool ambient base for refraction
+        glClearColor(0.12f, 0.16f, 0.24f, 0.35f);
+        glClear(GL_COLOR_BUFFER_BIT);
     }
 
     // 2. Dual-Kawase blur pyramid
@@ -250,9 +255,8 @@ void GlassRenderer::render(int width,
     glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(gtkFbo));
     glViewport(0, 0, width, height);
 
-    if (overlayTransparentMode && useLiveBackdrop && hasDesktopTex_) {
-        // Transparent around glass panels so the real live desktop shows cleanly underneath,
-        // while the glass panels themselves refract the captured desktop pixels.
+    if (overlayTransparentMode) {
+        // Transparent around glass panels so the real live desktop shows cleanly underneath.
         glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
         glClear(GL_COLOR_BUFFER_BIT);
     } else {
@@ -280,6 +284,7 @@ void GlassRenderer::render(int width,
     progGlass_.setVec2("uResolution", static_cast<float>(width), static_cast<float>(height));
     progGlass_.setFloat("uTime", timeSec);
     progGlass_.setVec4("uClick", clickX, clickY, clickAgeSec, clickActive ? 1.0f : 0.0f);
+    progGlass_.setFloat("uTranslucentGlass", translucentGlass ? 1.0f : 0.0f);
 
     for (const auto& p : panels) {
         if (p.w <= 1.0f || p.h <= 1.0f) continue;
@@ -293,6 +298,7 @@ void GlassRenderer::render(int width,
         progGlass_.setVec4("uTintColor", m.tintR, m.tintG, m.tintB, m.tintAlpha);
         progGlass_.setFloat("uShadowAlpha", m.shadowAlpha);
         progGlass_.setFloat("uIsPill", p.isPill ? 1.0f : 0.0f);
+        progGlass_.setFloat("uCustomOpacity", p.customOpacity);
         drawQuad();
     }
 

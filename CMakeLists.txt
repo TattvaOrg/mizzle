@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(liquid_glass_ui LANGUAGES CXX)
+project(mizzle LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -19,6 +19,8 @@ add_executable(liquid-glass-ui
     src/glass_renderer.cpp
     src/ui_widgets.cpp
     src/preview_dump.cpp
+    src/system_info.cpp
+    src/config_store.cpp
 )
 
 # Link gtk4-layer-shell before wayland-client (via gtk4/layer-shell pkg-config order)
@@ -28,6 +30,7 @@ target_link_libraries(liquid-glass-ui PRIVATE
     PkgConfig::EPOXY
     PkgConfig::PANGOCAIRO
     PkgConfig::EGL
+    pthread
 )
 
 target_compile_options(liquid-glass-ui PRIVATE
@@ -39,4 +42,8 @@ target_compile_options(liquid-glass-ui PRIVATE
 
 target_compile_definitions(liquid-glass-ui PRIVATE
     LIQUID_GLASS_SHADER_DIR="${CMAKE_CURRENT_SOURCE_DIR}/shaders"
+    LIQUID_GLASS_INSTALL_SHADER_DIR="${CMAKE_INSTALL_PREFIX}/share/mizzle/shaders"
 )
+
+install(TARGETS liquid-glass-ui RUNTIME DESTINATION bin)
+install(DIRECTORY shaders/ DESTINATION share/mizzle/shaders)

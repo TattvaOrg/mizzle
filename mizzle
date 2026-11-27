@@ -1,0 +1,175 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+INSTALL_DIR="${MIZZLE_DIR:-$HOME/.mizzle}"
+LOCAL_BIN="$HOME/.local/bin"
+RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp}"
+PID_FILE="$RUNTIME_DIR/mizzle.pid"
+CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/mizzle"
+LOG_FILE="$CACHE_DIR/mizzle.log"
+
+SCRIPT_SOURCE="$(readlink -f "${BASH_SOURCE[0]}")"
+SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_SOURCE")" && pwd)"
+
+find_binary() {
+    if [[ -x "$LOCAL_BIN/liquid-glass-ui" ]]; then
+        echo "$LOCAL_BIN/liquid-glass-ui"
+    elif [[ -x "$SCRIPT_DIR/build/liquid-glass-ui" ]]; then
+        echo "$SCRIPT_DIR/build/liquid-glass-ui"
+    elif [[ -x "$INSTALL_DIR/build/liquid-glass-ui" ]]; then
+        echo "$INSTALL_DIR/build/liquid-glass-ui"
+    else
+        return 1
+    fi
+}
+
+is_running() {
+    pgrep -x "liquid-glass-ui" >/dev/null 2>&1
+}
+
+start_daemon() {
+    local bin
+    if ! bin="$(find_binary)"; then
+        echo "mizzle: binary not found. Run ./install.sh first." >&2
+        exit 1
+    fi
+    if is_running; then
+        echo "mizzle is already running (PID: $(pgrep -x liquid-glass-ui | tr '\n' ' '))"
+        return 0
+    fi
+    mkdir -p "$CACHE_DIR"
+    export MIZZLE_SHADER_DIR="${MIZZLE_SHADER_DIR:-$HOME/.local/share/mizzle/shaders}"
+    if [[ ! -d "$MIZZLE_SHADER_DIR" ]]; then
+        MIZZLE_SHADER_DIR="$SCRIPT_DIR/shaders"
+    fi
+    nohup "$bin" --env "$@" >"$LOG_FILE" 2>&1 &
+    echo $! > "$PID_FILE"
+    sleep 0.25
+    if is_running; then
+        echo "mizzle desktop environment started."
+    else
+        echo "mizzle failed to start. Check log: $LOG_FILE" >&2
+        exit 1
+    fi
+}
+
+stop_daemon() {
+    local bin=""
+    bin="$(find_binary 2>/dev/null || true)"
+    if [[ -n "$bin" ]] && is_running; then
+        "$bin" --ipc quit >/dev/null 2>&1 || true
+        sleep 0.25
+    fi
+    if is_running; then
+        pkill -x "liquid-glass-ui" 2>/dev/null || true
+        sleep 0.2
+    fi
+    rm -f "$PID_FILE" "$RUNTIME_DIR/mizzle.sock" 2>/dev/null || true
+    echo "mizzle stopped."
+}
+
+print_help() {
+    cat <<'EOF'
+Mizzle — macOS Tahoe Liquid Glass Desktop Environment UI
+
+Usage: mizzle [command] [options]
+
+Daemon Commands:
+  start               Start Mizzle desktop environment (Bar, Dock, Widgets, HUD)
+  stop                Stop running Mizzle instance
+  restart             Restart Mizzle desktop environment
+  status              Show running status, commit, and config location
+
+Quick Controls (IPC to running instance):
+  spotlight           Toggle Spotlight Search
+  cc                  Toggle Control Center
+  settings            Toggle Shader & Widget Lab
+  apps                Toggle Applications Grid
+  widgets             Show / hide Desktop Widgets
+  edit-widgets        Toggle Widget Resize / Edit mode
+  recapture           Re-capture desktop wallpaper behind glass
+
+Preview & Maintenance:
+  --window            Launch foreground preview window
+  --overlay           Launch foreground full-screen overlay showcase
+  --demo-bg           Launch with Optics Lab animated backdrop
+  --silk-bg           Launch with Lake Tahoe animated backdrop
+  update [opts]       Update Mizzle (latest release or main branch)
+  uninstall [opts]    Uninstall Mizzle
+  --help, -h          Show this help
+EOF
+}
+
+cmd="${1:-}"
+case "$cmd" in
+    "")
+        if is_running; then
+            bin="$(find_binary)"
+            "$bin" --ipc settings
+        else
+            start_daemon
+        fi
+        ;;
+    start)
+        shift
+        start_daemon "$@"
+        ;;
+    stop)
+        stop_daemon
+        ;;
+    restart)
+        shift
+        stop_daemon
+        start_daemon "$@"
+        ;;
+    status)
+        if is_running; then
+            echo "Status: running (PID: $(pgrep -x liquid-glass-ui | tr '\n' ' '))"
+        else
+            echo "Status: stopped"
+        fi
+        if [[ -d "$INSTALL_DIR/.git" ]]; then
+            echo "Install dir: $INSTALL_DIR ($(git -C "$INSTALL_DIR" rev-parse --short HEAD 2>/dev/null || echo unknown))"
+        elif [[ -d "$SCRIPT_DIR/.git" ]]; then
+            echo "Repo dir: $SCRIPT_DIR ($(git -C "$SCRIPT_DIR" rev-parse --short HEAD 2>/dev/null || echo unknown))"
+        fi
+        echo "Config: ${XDG_CONFIG_HOME:-$HOME/.config}/mizzle/config.ini"
+        ;;
+    spotlight|cc|control-center|settings|tuner|apps|finder|widgets|edit-widgets|recapture)
+        bin="$(find_binary)" || { echo "mizzle: binary not found." >&2; exit 1; }
+        if ! is_running; then
+            start_daemon
+            sleep 0.3
+        fi
+        "$bin" --ipc "$cmd"
+        ;;
+    update)
+        shift
+        if [[ -x "$INSTALL_DIR/install.sh" ]]; then
+            exec "$INSTALL_DIR/install.sh" "$@"
+        else
+            exec "$SCRIPT_DIR/install.sh" "$@"
+        fi
+        ;;
+    uninstall)
+        shift
+        if [[ -x "$INSTALL_DIR/uninstall.sh" ]]; then
+            exec "$INSTALL_DIR/uninstall.sh" "$@"
+        else
+            exec "$SCRIPT_DIR/uninstall.sh" "$@"
+        fi
+        ;;
+    --window|--overlay|--demo-bg|--silk-bg|--render-preview)
+        bin="$(find_binary)" || { echo "mizzle: binary not found." >&2; exit 1; }
+        export MIZZLE_SHADER_DIR="${MIZZLE_SHADER_DIR:-$SCRIPT_DIR/shaders}"
+        exec "$bin" "$@"
+        ;;
+    -h|--help|help)
+        print_help
+        ;;
+    *)
+        echo "Unknown command: $cmd" >&2
+        print_help
+        exit 1
+        ;;
+esac

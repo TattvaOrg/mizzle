@@ -33,6 +33,7 @@ struct GlassPanelSpec {
     bool isPill = false;
     bool overrideMaterial = false;
     GlassMaterial customMaterial{};
+    float customOpacity = -1.0f; // <0 uses auto translucent glass opacity when translucentGlass=true
 };
 
 class GlassRenderer {
@@ -62,7 +63,8 @@ public:
                 float clickAgeSec,
                 bool clickActive,
                 const GlassMaterial& material,
-                const std::vector<GlassPanelSpec>& panels);
+                const std::vector<GlassPanelSpec>& panels,
+                bool translucentGlass = false);
 
 private:
     static constexpr int kPyramidLevels = 5;

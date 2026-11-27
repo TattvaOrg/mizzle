@@ -1,8 +1,10 @@
 #include "shader_utils.hpp"
 
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <unistd.h>
 #include <vector>
 
 namespace lg {
@@ -148,8 +150,28 @@ void ShaderProgram::setVec4(const char* name, float x, float y, float z, float w
 
 std::string resolveShaderPath(const std::string& filename) {
     namespace fs = std::filesystem;
+
+    if (const char* envDir = std::getenv("MIZZLE_SHADER_DIR")) {
+        fs::path envPath = fs::path(envDir) / filename;
+        if (fs::exists(envPath)) return envPath.string();
+    }
+
     fs::path local = fs::path("shaders") / filename;
     if (fs::exists(local)) return local.string();
+
+    std::error_code ec;
+    fs::path exePath = fs::read_symlink("/proc/self/exe", ec);
+    if (!ec && exePath.has_parent_path()) {
+        fs::path relShare = exePath.parent_path() / ".." / "share" / "mizzle" / "shaders" / filename;
+        if (fs::exists(relShare, ec)) return relShare.lexically_normal().string();
+        fs::path relLocal = exePath.parent_path() / "shaders" / filename;
+        if (fs::exists(relLocal, ec)) return relLocal.lexically_normal().string();
+    }
+
+#ifdef LIQUID_GLASS_INSTALL_SHADER_DIR
+    fs::path installed = fs::path(LIQUID_GLASS_INSTALL_SHADER_DIR) / filename;
+    if (fs::exists(installed)) return installed.string();
+#endif
 #ifdef LIQUID_GLASS_SHADER_DIR
     fs::path compiled = fs::path(LIQUID_GLASS_SHADER_DIR) / filename;
     if (fs::exists(compiled)) return compiled.string();
